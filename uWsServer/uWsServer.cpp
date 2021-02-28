@@ -1,8 +1,18 @@
 ﻿#include <iostream>
+#include <map>
 #include <string>
 #include <uwebsockets/App.h>
 
 // ws = new WebSocket("ws://127.0.0.1:9001/");ws.onmessage = ({data}) => console.log("From server: ", data);
+
+const std::string MESSAGE_TO = "message_to::";
+const std::string SET_NAME = "set_name::";
+const std::string OFFLINE = "offline::";
+const std::string ONLINE = "online::";
+const std::string BROADCAST_CHANNEL = "broadcast";
+
+// имена пользователей
+std::map<std::uint32_t, std::string> userNames;
 
 // данные пользователя
 class PerSocketData {
@@ -11,15 +21,31 @@ public:
 	std::uint32_t user_id;
 };
 
-const std::string MESSAGE_TO = "message_to::";
-const std::string SET_NAME = "set_name::";
+// обновление имени пользователя
+void updateName(PerSocketData* data) {
+	userNames[data->user_id] = data->name;
+}
+
+// удаление имени пользователя
+void deleteName(PerSocketData* data) {
+	userNames.erase(data->user_id);
+}
+
+// online::id::name
+std::string online(std::uint32_t user_id) {
+	std::string name = userNames[user_id];
+	return ONLINE + std::to_string(user_id) + "::" + name;
+}
+
+// offline::id::name
+std::string offline(std::uint32_t user_id) {
+	std::string name = userNames[user_id];
+	return OFFLINE + std::to_string(user_id) + "::" + name;
+}
 
 // проверка id
 bool isValidId(std::uint32_t last_user_id, std::uint32_t user_id) {
-	if (user_id >= last_user_id) {
-		return false;
-	}
-	else return true;
+	return user_id > 0 && user_id <= last_user_id;
 }
 
 // установка имени
@@ -29,17 +55,7 @@ bool isSetName(std::string message) {
 
 // проверка имени
 bool isValidName(std::string message) {
-	if (message.length() >= 255) {
-		return false;
-	}
-	else {
-		std::size_t foundIndex = message.find("::");
-		if (foundIndex != std::string::npos)
-		{
-			return false;
-		}
-		else return true;
-	}
+	return message.find("::") == -1 && message.length() <= 255;
 }
 
 // парсинг имени
@@ -90,14 +106,23 @@ int main()
 		userData->name = "USER";
 		userData->user_id = last_user_id++;
 
+		// уведомляем обо всех подключенных пользователях
+		for (auto entry : userNames) {
+			ws->send(online(entry.first), uWS::OpCode::TEXT);
+		}
+
+		updateName(userData);
+		ws->publish(BROADCAST_CHANNEL, online(userData->user_id));
+
 		std::cout << "New user connected, id = " << userData->user_id << std::endl;
 		// вывод числа подключенных пользователей
-		std::cout << "Total users connected: " << last_user_id - 1 << std::endl;
+		std::cout << "Total users connected: " << userNames.size() << std::endl;
 
 		// подписка пользователя на личный канал
-		ws->subscribe("user#" + std::to_string(userData->user_id));
+		std::string user_chanel = "user#" + std::to_string(userData->user_id);
+		ws->subscribe(user_chanel);
 		// подписка пользователя на общий канал
-		ws->subscribe("broadcast");
+		ws->subscribe(BROADCAST_CHANNEL);
 	},
 		// вызывется при получении сообщения от пользователя
 		.message = [&last_user_id](auto* ws, std::string_view message, uWS::OpCode opCode) {
@@ -113,7 +138,7 @@ int main()
 			std::string outgoingMessage = messageFrom(transmitterId, userData->name, text);
 
 			// проверка id получателя
-			if (isValidId(last_user_id, std::stoi(receiverId))) {
+			if (isValidId(userNames.size(), std::stoi(receiverId))) {
 				// отправка получателю
 				ws->publish("user#" + receiverId, outgoingMessage, uWS::OpCode::TEXT, false);
 
@@ -129,6 +154,9 @@ int main()
 			std::string newName = parseName(strMessage);
 			if (isValidName(newName)) {
 				userData->name = newName;
+				updateName(userData);
+				ws->publish(BROADCAST_CHANNEL, online(userData->user_id));
+
 				std::cout << "User #" << transmitterId << " set his name" << std::endl;
 			}
 			else std::cout << "User #" << transmitterId << " INVALID NAME!" << std::endl;
@@ -136,8 +164,11 @@ int main()
 
 	 },
 		// вызывается при отключении пользователя
-		.close = [](auto* ws, int code, std::string_view /*message*/) {
-
+		.close = [](auto* ws, int code, std::string_view message) {
+			PerSocketData* userData = (PerSocketData*)ws->getUserData();
+			ws->publish(BROADCAST_CHANNEL, offline(userData->user_id));
+			deleteName(userData);
+			std::cout << "Total users connected: " << userNames.size() << std::endl;
 		}
 		 // прослушивание порта
 		}).listen(9001, [](auto* listen_socket) {
