@@ -1,11 +1,10 @@
-﻿#include <string>
-#include <algorithm>
-#include <regex>
-#include <map>
+﻿#include <iostream>
+#include <string>
 #include <uwebsockets/App.h>
 
 // ws = new WebSocket("ws://127.0.0.1:9001/");ws.onmessage = ({data}) => console.log("From server: ", data);
 
+// данные пользователя
 class PerSocketData {
 public:
 	std::string name;
@@ -15,6 +14,7 @@ public:
 const std::string MESSAGE_TO = "message_to::";
 const std::string SET_NAME = "set_name::";
 
+// проверка id
 bool isValidId(std::uint32_t last_user_id, std::uint32_t user_id) {
 	if (user_id >= last_user_id) {
 		return false;
@@ -22,10 +22,12 @@ bool isValidId(std::uint32_t last_user_id, std::uint32_t user_id) {
 	else return true;
 }
 
+// установка имени
 bool isSetName(std::string message) {
 	return message.find(SET_NAME) == 0;
 }
 
+// проверка имени
 bool isValidName(std::string message) {
 	if (message.length() >= 255) {
 		return false;
@@ -40,6 +42,7 @@ bool isValidName(std::string message) {
 	}
 }
 
+// парсинг имени
 std::string parseName(std::string message) {
 	return message.substr(SET_NAME.size());
 }
@@ -61,11 +64,6 @@ std::string parseUserText(std::string message) {
 // адресовано сообщение или нет
 bool isMessageTo(std::string message) {
 	return message.find("message_to::") == 0;
-}
-
-// сообщение пользователю с id
-std::string messageTo(std::string user_id, std::string message) {
-	return "message_to::" + user_id + "::" + message;
 }
 
 // сообщение от пользователя с id
